@@ -10,6 +10,10 @@
         <attr name="aspectRatioX" format="integer"/>
         <attr name="aspectRatioY" format= "integer"/>
         <attr name="imageResource" format="reference"/>
+	<attr name="scaleType" format="enum">
+            <enum name="fitCenter" value="3" />
+            <enum name="centerInside" value="7" />
+        </attr>
     </declare-styleable>
 
 </resources>

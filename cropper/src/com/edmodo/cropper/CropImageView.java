@@ -1,17 +1,19 @@
 /*
- * Copyright 2013, Edmodo, Inc. 
+ * Copyright 2013, Edmodo, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this work except in compliance with the License.
  * You may obtain a copy of the License in the LICENSE file, or at:
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" 
- * BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language 
- * governing permissions and limitations under the License. 
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS"
+ * BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language
+ * governing permissions and limitations under the License.
  */
 
 package com.edmodo.cropper;
+
+import java.io.InputStream;
 
 import android.content.Context;
 import android.content.res.TypedArray;
@@ -32,6 +34,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.ImageView.ScaleType;
 
 import com.edmodo.cropper.cropwindow.CropOverlayView;
 import com.edmodo.cropper.cropwindow.edge.Edge;
@@ -67,6 +70,8 @@ public class CropImageView extends FrameLayout {
     private ImageView mImageView;
     private CropOverlayView mCropOverlayView;
 
+    private ScaleType mScaleType = ScaleType.CENTER_INSIDE;
+
     private Bitmap mBitmap;
     private int mDegreesRotated = 0;
 
@@ -99,6 +104,9 @@ public class CropImageView extends FrameLayout {
             mAspectRatioX = ta.getInteger(R.styleable.CropImageView_aspectRatioX, DEFAULT_ASPECT_RATIO_X);
             mAspectRatioY = ta.getInteger(R.styleable.CropImageView_aspectRatioY, DEFAULT_ASPECT_RATIO_Y);
             mImageResource = ta.getResourceId(R.styleable.CropImageView_imageResource, DEFAULT_IMAGE_RESOURCE);
+            int scaleTypeIndex = ta.getInt(R.styleable.CropImageView_scaleType, ScaleType.CENTER_INSIDE.ordinal());
+            setScaleType(scaleTypeIndex);
+
         } finally {
             ta.recycle();
         }
@@ -146,7 +154,9 @@ public class CropImageView extends FrameLayout {
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
 
         if (mBitmap != null) {
-            final Rect bitmapRect = ImageViewUtil.getBitmapRectCenterInside(mBitmap, this);
+            final Rect bitmapRect = mScaleType == ScaleType.CENTER_INSIDE ?
+                    ImageViewUtil.getBitmapRectCenterInside(mBitmap, this) :
+                    ImageViewUtil.getBitmapRectFitCenter(mBitmap, this);
             mCropOverlayView.setBitmapRect(bitmapRect);
         } else {
             mCropOverlayView.setBitmapRect(EMPTY_RECT);
@@ -170,50 +180,20 @@ public class CropImageView extends FrameLayout {
             if (heightSize == 0)
                 heightSize = mBitmap.getHeight();
 
-            int desiredWidth;
-            int desiredHeight;
+            SizeHolder holder;
 
-            double viewToBitmapWidthRatio = Double.POSITIVE_INFINITY;
-            double viewToBitmapHeightRatio = Double.POSITIVE_INFINITY;
+            if (mScaleType == ScaleType.CENTER_INSIDE)
+                holder = onMeasureCenterInside(widthMode, widthSize, heightMode, heightSize);
+            else
+                holder = onMeasureFitCenter(widthMode, widthSize, heightMode, heightSize);
 
-            // Checks if either width or height needs to be fixed
-            if (widthSize < mBitmap.getWidth()) {
-                viewToBitmapWidthRatio = (double) widthSize / (double) mBitmap.getWidth();
-            }
-            if (heightSize < mBitmap.getHeight()) {
-                viewToBitmapHeightRatio = (double) heightSize / (double) mBitmap.getHeight();
-            }
+            mLayoutWidth = holder.width;
+            mLayoutHeight = holder.height;
 
-            // If either needs to be fixed, choose smallest ratio and calculate
-            // from there
-            if (viewToBitmapWidthRatio != Double.POSITIVE_INFINITY || viewToBitmapHeightRatio != Double.POSITIVE_INFINITY) {
-                if (viewToBitmapWidthRatio <= viewToBitmapHeightRatio) {
-                    desiredWidth = widthSize;
-                    desiredHeight = (int) (mBitmap.getHeight() * viewToBitmapWidthRatio);
-                } else {
-                    desiredHeight = heightSize;
-                    desiredWidth = (int) (mBitmap.getWidth() * viewToBitmapHeightRatio);
-                }
-            }
+            final Rect bitmapRect = mScaleType == ScaleType.CENTER_INSIDE ?
+                    ImageViewUtil.getBitmapRectCenterInside(mBitmap.getWidth(), mBitmap.getHeight(), mLayoutWidth, mLayoutHeight) :
+                    ImageViewUtil.getBitmapRectFitCenter(mBitmap.getWidth(), mBitmap.getHeight(), mLayoutWidth, mLayoutHeight);
 
-            // Otherwise, the picture is within frame layout bounds. Desired
-            // width is
-            // simply picture size
-            else {
-                desiredWidth = mBitmap.getWidth();
-                desiredHeight = mBitmap.getHeight();
-            }
-
-            int width = getOnMeasureSpec(widthMode, widthSize, desiredWidth);
-            int height = getOnMeasureSpec(heightMode, heightSize, desiredHeight);
-
-            mLayoutWidth = width;
-            mLayoutHeight = height;
-
-            final Rect bitmapRect = ImageViewUtil.getBitmapRectCenterInside(mBitmap.getWidth(),
-                                                                            mBitmap.getHeight(),
-                                                                            mLayoutWidth,
-                                                                            mLayoutHeight);
             mCropOverlayView.setBitmapRect(bitmapRect);
 
             // MUST CALL THIS
@@ -224,6 +204,105 @@ public class CropImageView extends FrameLayout {
             mCropOverlayView.setBitmapRect(EMPTY_RECT);
             setMeasuredDimension(widthSize, heightSize);
         }
+    }
+
+    private static class SizeHolder {
+
+        int width = 0;
+        int height = 0;
+
+        public SizeHolder(int aWidth, int anHeight) {
+            this.width = aWidth;
+            this.height = anHeight;
+        }
+
+        @Override
+        public String toString() {
+            return "SizeHolder - Width: "+ this.width +" Height: "+this.height;
+        }
+
+    }
+
+    private SizeHolder onMeasureCenterInside(int widthMode, int widthSize, int heightMode, int heightSize) {
+        SizeHolder result = new SizeHolder(0, 0);
+
+        int desiredWidth;
+        int desiredHeight;
+        double viewToBitmapWidthRatio = Double.POSITIVE_INFINITY;
+        double viewToBitmapHeightRatio = Double.POSITIVE_INFINITY;
+
+        // Checks if either width or height needs to be fixed
+        if (widthSize < mBitmap.getWidth()) {
+            viewToBitmapWidthRatio = (double) widthSize / (double) mBitmap.getWidth();
+        }
+        if (heightSize < mBitmap.getHeight()) {
+            viewToBitmapHeightRatio = (double) heightSize / (double) mBitmap.getHeight();
+        }
+
+        // If either needs to be fixed, choose smallest ratio and calculate
+        // from there
+        if (viewToBitmapWidthRatio != Double.POSITIVE_INFINITY || viewToBitmapHeightRatio != Double.POSITIVE_INFINITY) {
+            if (viewToBitmapWidthRatio <= viewToBitmapHeightRatio) {
+                desiredWidth = widthSize;
+                desiredHeight = (int) (mBitmap.getHeight() * viewToBitmapWidthRatio);
+            } else {
+                desiredHeight = heightSize;
+                desiredWidth = (int) (mBitmap.getWidth() * viewToBitmapHeightRatio);
+            }
+        }
+
+        // Otherwise, the picture is within frame layout bounds. Desired
+        // width is
+        // simply picture size
+        else {
+            desiredWidth = mBitmap.getWidth();
+            desiredHeight = mBitmap.getHeight();
+        }
+
+        result.width = getOnMeasureSpec(widthMode, widthSize, desiredWidth);
+        result.height = getOnMeasureSpec(heightMode, heightSize, desiredHeight);
+        return result;
+    }
+
+    private SizeHolder onMeasureFitCenter(int widthMode, int widthSize, int heightMode, int heightSize) {
+        SizeHolder result = new SizeHolder(0, 0);
+
+        int desiredWidth;
+        int desiredHeight;
+        double bitmapToViewWidthRatio = Double.POSITIVE_INFINITY;
+        double bitmapToViewHeightRatio = Double.POSITIVE_INFINITY;
+
+        // Checks if either width or height needs to be fixed
+        if (mBitmap.getWidth() < widthSize) {
+            bitmapToViewWidthRatio = (double) mBitmap.getWidth() / (double) widthSize ;
+        }
+        if (mBitmap.getHeight() < heightSize) {
+            bitmapToViewHeightRatio = (double) mBitmap.getHeight() / (double) heightSize;
+        }
+
+        // If either needs to be fixed, choose smallest ratio and calculate
+        // from there
+        if (bitmapToViewWidthRatio != Double.POSITIVE_INFINITY || bitmapToViewHeightRatio != Double.POSITIVE_INFINITY) {
+            if (bitmapToViewWidthRatio <= bitmapToViewHeightRatio) {
+                desiredHeight = heightSize;
+                desiredWidth = (int) (mBitmap.getWidth() / bitmapToViewHeightRatio);
+            } else {
+                desiredWidth = widthSize;
+                desiredHeight = (int) (mBitmap.getHeight() / bitmapToViewWidthRatio);
+            }
+        }
+
+        // Otherwise, the picture is within frame layout bounds. Desired
+        // width is
+        // simply picture size
+        else {
+            desiredWidth = mBitmap.getWidth();
+            desiredHeight = mBitmap.getHeight();
+        }
+
+        result.width = getOnMeasureSpec(widthMode, widthSize, desiredWidth);
+        result.height = getOnMeasureSpec(heightMode, heightSize, desiredHeight);
+        return result;
     }
 
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
@@ -243,7 +322,7 @@ public class CropImageView extends FrameLayout {
 
     /**
      * Returns the integer of the imageResource
-     * 
+     *
      * @param int the image resource id
      */
     public int getImageResource() {
@@ -252,7 +331,7 @@ public class CropImageView extends FrameLayout {
 
     /**
      * Sets a Bitmap as the content of the CropImageView.
-     * 
+     *
      * @param bitmap the Bitmap to set
      */
     public void setImageBitmap(Bitmap bitmap) {
@@ -270,7 +349,7 @@ public class CropImageView extends FrameLayout {
      * <p>
      * The EXIF can be retrieved by doing the following:
      * <code>ExifInterface exif = new ExifInterface(path);</code>
-     * 
+     *
      * @param bitmap the original bitmap to set; if null, this
      * @param exif the EXIF information about this bitmap; may be null
      */
@@ -319,7 +398,7 @@ public class CropImageView extends FrameLayout {
 
     /**
      * Sets a Drawable as the content of the CropImageView.
-     * 
+     *
      * @param resId the drawable resource ID to set
      */
     public void setImageResource(int resId) {
@@ -334,13 +413,24 @@ public class CropImageView extends FrameLayout {
     }
 
     /**
+     * Sets a stream as the content of the CropImageView
+     * @param is the InputStream of the wanted Bitmap
+     */
+    public void setImageStream(InputStream is) {
+        Bitmap bitmap = BitmapFactory.decodeStream(is);
+        setImageBitmap(bitmap);
+    }
+
+    /**
      * Gets the cropped image based on the current crop window.
-     * 
+     *
      * @return a new Bitmap representing the cropped image
      */
     public Bitmap getCroppedImage(boolean isRect) {
 
-        final Rect displayedImageRect = ImageViewUtil.getBitmapRectCenterInside(mBitmap, mImageView);
+        final Rect displayedImageRect = mScaleType == ScaleType.CENTER_INSIDE ?
+                ImageViewUtil.getBitmapRectCenterInside(mBitmap, mImageView) :
+                ImageViewUtil.getBitmapRectFitCenter(mBitmap, mImageView);
 
         // Get the scale factor between the actual Bitmap dimensions and the
         // displayed dimensions for width.
@@ -426,12 +516,14 @@ public class CropImageView extends FrameLayout {
     /**
      * Gets the crop window's position relative to the source Bitmap (not the image
      * displayed in the CropImageView).
-     * 
+     *
      * @return a RectF instance containing cropped area boundaries of the source Bitmap
      */
     public RectF getActualCropRect() {
 
-        final Rect displayedImageRect = ImageViewUtil.getBitmapRectCenterInside(mBitmap, mImageView);
+        final Rect displayedImageRect = mScaleType == ScaleType.CENTER_INSIDE ?
+                ImageViewUtil.getBitmapRectCenterInside(mBitmap, mImageView) :
+                ImageViewUtil.getBitmapRectFitCenter(mBitmap, mImageView);
 
         // Get the scale factor between the actual Bitmap dimensions and the
         // displayed dimensions for width.
@@ -475,7 +567,7 @@ public class CropImageView extends FrameLayout {
     /**
      * Sets whether the aspect ratio is fixed or not; true fixes the aspect ratio, while
      * false allows it to be changed.
-     * 
+     *
      * @param fixAspectRatio Boolean that signals whether the aspect ratio should be
      *            maintained.
      */
@@ -486,7 +578,7 @@ public class CropImageView extends FrameLayout {
     /**
      * Sets the guidelines for the CropOverlayView to be either on, off, or to show when
      * resizing the application.
-     * 
+     *
      * @param guidelines Integer that signals whether the guidelines should be on, off, or
      *            only showing when resizing.
      */
@@ -496,7 +588,7 @@ public class CropImageView extends FrameLayout {
 
     /**
      * Sets the both the X and Y values of the aspectRatio.
-     * 
+     *
      * @param aspectRatioX int that specifies the new X value of the aspect ratio
      * @param aspectRatioX int that specifies the new Y value of the aspect ratio
      */
@@ -511,7 +603,7 @@ public class CropImageView extends FrameLayout {
     /**
      * Rotates image by the specified number of degrees clockwise. Cycles from 0 to 360
      * degrees.
-     * 
+     *
      * @param degrees Integer specifying the number of degrees to rotate.
      */
     public void rotateImage(int degrees) {
@@ -525,6 +617,26 @@ public class CropImageView extends FrameLayout {
         mDegreesRotated = mDegreesRotated % 360;
     }
 
+    private void setScaleType(int scaleTypeIndex) {
+        ScaleType[] scaleTypes = ScaleType.values();
+        ScaleType scaleType = scaleTypeIndex >= 0 && scaleTypeIndex < scaleTypes.length ? scaleTypes[scaleTypeIndex] : ScaleType.CENTER_INSIDE;
+        setScaleType(scaleType);
+    }
+
+    /**
+     * Controls how the image should be resized or moved to match the size
+     * of this ImageView. Valid values are {@link ScaleType#FIT_CENTER} and {@link ScaleType#CENTER_INSIDE}
+     *
+     * @param scaleType The desired scaling mode.
+     */
+    public void setScaleType(ScaleType scaleType) {
+        if (scaleType != ScaleType.CENTER_INSIDE && scaleType != ScaleType.FIT_CENTER)
+            return;
+        mScaleType = scaleType;
+        if (mImageView != null)
+            mImageView.setScaleType(mScaleType);
+    }
+
     // Private Methods /////////////////////////////////////////////////////////
 
     private void init(Context context) {
@@ -533,6 +645,7 @@ public class CropImageView extends FrameLayout {
         final View v = inflater.inflate(R.layout.crop_image_view, this, true);
 
         mImageView = (ImageView) v.findViewById(R.id.ImageView_image);
+        mImageView.setScaleType(mScaleType);
 
         setImageResource(mImageResource);
         mCropOverlayView = (CropOverlayView) v.findViewById(R.id.CropOverlayView);
@@ -542,7 +655,7 @@ public class CropImageView extends FrameLayout {
     /**
      * Determines the specs for the onMeasure function. Calculates the width or height
      * depending on the mode.
-     * 
+     *
      * @param measureSpecMode The mode of the measured width or height.
      * @param measureSpecSize The size of the measured width or height.
      * @param desiredSize The desired size of the measured width or height.
