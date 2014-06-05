@@ -457,6 +457,10 @@ public class CropImageView extends FrameLayout {
 	 */
 	public Bitmap getCroppedImage(boolean isRect) {
 
+		if (mBitmap == null) {
+			return null;
+		}
+
 		final Rect displayedImageRect = mScaleType == ScaleType.CENTER_INSIDE ? ImageViewUtil
 				.getBitmapRectCenterInside(mBitmap, mImageView) : ImageViewUtil
 				.getBitmapRectFitCenter(mBitmap, mImageView);
@@ -497,8 +501,13 @@ public class CropImageView extends FrameLayout {
 		int cropWidth = Math.min((int) actualCropWidth, bmpWidth - cropX);
 		int cropHeight = Math.min((int) actualCropHeight, bmpHeight - cropY);
 
-		final Bitmap croppedBitmap = Bitmap.createBitmap(mBitmap, cropX, cropY,
+		Bitmap croppedBitmap = Bitmap.createBitmap(mBitmap, cropX, cropY,
 				cropWidth, cropHeight);
+
+		if (croppedBitmap == mBitmap) {
+			croppedBitmap = croppedBitmap.copy(Bitmap.Config.ARGB_8888, false);
+		}
+		
 		CropType type = cropType;
 		if (isRect) {
 			type = CropType.RECT;
@@ -566,8 +575,8 @@ public class CropImageView extends FrameLayout {
 				sourceHeight), new Rect(0, 0, sourceWidth, sourceHeight), paint);
 		paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_OUT));
 		canvas.drawBitmap(mMask,
-				new Rect(0, 0, mMask.getWidth(), mMask.getHeight()), new RectF(0,
-						0, sourceWidth, sourceHeight), paint);
+				new Rect(0, 0, mMask.getWidth(), mMask.getHeight()), new RectF(
+						0, 0, sourceWidth, sourceHeight), paint);
 
 		return targetBitmap;
 	}
@@ -675,6 +684,9 @@ public class CropImageView extends FrameLayout {
 	 *            Integer specifying the number of degrees to rotate.
 	 */
 	public void rotateImage(int degrees) {
+		if (mBitmap == null) {
+			return;
+		}
 
 		Matrix matrix = new Matrix();
 		matrix.postRotate(degrees);
